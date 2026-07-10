@@ -20,10 +20,34 @@ describe("resolveWindow", () => {
     });
   });
 
-  it("uses 1M window for known 1M models without a marker", () => {
-    expect(resolveWindow({ model: "claude-fable-5" })).toEqual({
-      window: ONE_M_WINDOW,
+  it("maps known 1M model families without a marker", () => {
+    for (const model of [
+      "claude-fable-5",
+      "claude-mythos-5",
+      "claude-opus-4-8",
+      "claude-opus-4-7",
+      "claude-opus-4-6",
+      "claude-sonnet-5",
+      "claude-sonnet-4-6",
+    ]) {
+      expect(resolveWindow({ model })).toEqual({
+        window: ONE_M_WINDOW,
+        source: "model",
+      });
+    }
+  });
+
+  it("maps 200k model families with source model", () => {
+    expect(resolveWindow({ model: "claude-haiku-4-5-20251001" })).toEqual({
+      window: DEFAULT_WINDOW,
       source: "model",
+    });
+  });
+
+  it("falls back to default for unknown models", () => {
+    expect(resolveWindow({ model: "claude-opus-4-5-20251101" })).toEqual({
+      window: DEFAULT_WINDOW,
+      source: "default",
     });
   });
 

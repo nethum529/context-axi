@@ -90,8 +90,8 @@ describe("cli error path", () => {
     expect(code).toBe(0);
     const parsed = JSON.parse(stdout.toString());
     expect(parsed.tokensUsed).toBe(100000);
-    expect(parsed.percentUsed).toBe(50);
-    expect(parsed.windowSource).toBe("default");
+    expect(parsed.percentUsed).toBe(10); // 100k of the 1M opus-4-8 window
+    expect(parsed.windowSource).toBe("model");
   });
 
   it("exits 1 with a structured error when --transcript points at a directory (EISDIR)", async () => {
