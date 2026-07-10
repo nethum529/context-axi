@@ -1,0 +1,33 @@
+{
+  "name": "context-axi",
+  "version": "0.1.0",
+  "description": "AXI-compliant CLI — reports the current Claude Code session's context-window usage as a percentage",
+  "type": "module",
+  "bin": {
+    "context-axi": "dist/bin/context-axi.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx bin/context-axi.ts"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
