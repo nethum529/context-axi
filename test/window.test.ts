@@ -20,6 +20,13 @@ describe("resolveWindow", () => {
     });
   });
 
+  it("uses 1M window for known 1M models without a marker", () => {
+    expect(resolveWindow({ model: "claude-fable-5" })).toEqual({
+      window: ONE_M_WINDOW,
+      source: "model",
+    });
+  });
+
   it("override always wins over model hint", () => {
     expect(resolveWindow({ override: 50000, model: "claude-sonnet-4-5[1m]" })).toEqual({
       window: 50000,
