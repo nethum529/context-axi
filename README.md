@@ -14,9 +14,6 @@ Run it straight from GitHub, nothing to install:
 npx -y github:nethum529/context-axi
 ```
 
-That is the entire setup.
-npm clones the repo, builds it on the fly, and runs it; the first run takes a few seconds, after that it's cached.
-
 Want it as a real command?
 
 ```
