@@ -6,6 +6,31 @@ How full is your agent's head?
 It reads token counts from the session transcript on disk.
 It never touches message content and never writes anything.
 
+## Quick start
+
+Run it straight from GitHub, nothing to install:
+
+```
+npx -y github:nethum529/context-axi
+```
+
+That is the entire setup.
+npm clones the repo, builds it on the fly, and runs it; the first run takes a few seconds, after that it's cached.
+
+Want it as a real command?
+
+```
+npm install -g github:nethum529/context-axi
+context-axi
+```
+
+Agents can use it with zero setup too.
+Just tell yours:
+
+```
+Use `npx -y github:nethum529/context-axi` to check how full your context is.
+```
+
 ## How it works
 
 ```
