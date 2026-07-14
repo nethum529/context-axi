@@ -3,34 +3,43 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CliError, parseArgs } from "./args.js";
 import { resolveTranscript } from "./discover.js";
-import { findLastUsage, readTranscript } from "./usage.js";
+import {
+  findLastCodexUsage,
+  findLastUsage,
+  readTranscript,
+  type CodexUsageInfo,
+} from "./usage.js";
 import { resolveWindow } from "./window.js";
 import { buildReport } from "./report.js";
 import { formatCompact, formatJson } from "./format.js";
 import { formatError } from "./errors.js";
 
 const HELP = `usage: context-axi [flags]
-Reports the active Claude Code session's context-window usage as a percentage.
+Reports the active Claude Code or Codex session's context-window usage as a percentage.
 
-flags[7]:
+flags[8]:
   --cwd <dir>          use this dir instead of process cwd to locate the session
-  --session <id>        use ~/.claude/projects/<encoded-cwd>/<id>.jsonl
+  --session <id>        select a Claude session, or a Codex rollout with --harness codex
   --transcript <path>   use this transcript file directly
+  --harness <name>      choose auto, claude, or codex (default: auto)
   --window <n>          override the context window size (tokens)
   --json                print the normalized report object only
   --help                show this help
   -v/--version          print version
 
 behavior:
-  Running with no flags reports on the most-recently-modified transcript for
-  the current working directory. Window size defaults to 200000, or 1000000
-  when the model string looks like a 1M-context variant ([1m] or -1m); this
-  is a best-effort guess, not read from the transcript itself.
+  Auto mode compares the newest Claude and Codex transcripts for the current
+  working directory. A rollout path is detected as Codex automatically.
+  Codex cwd matching is exact-string; trailing slashes and symlink paths must
+  match the rollout's recorded cwd.
+  Claude windows default to 200000 or 1000000 for known 1M variants.
+  Codex windows default to 272000. --window always wins.
 
 examples:
   context-axi
   context-axi --json
   context-axi --cwd /home/example/firstmate
+  context-axi --harness codex
   context-axi --window 1000000
 `;
 
@@ -77,6 +86,7 @@ async function run(
     cwd,
     session: args.session,
     transcript: args.transcript,
+    harness: args.harness,
   });
 
   if (!discovery.ok) {
@@ -95,13 +105,16 @@ async function run(
   }
 
   const content = readTranscript(discovery.transcript);
-  const usage = findLastUsage(content);
+  const usage =
+    discovery.harness === "codex" ? findLastCodexUsage(content) : findLastUsage(content);
 
   if (!usage) {
     stderr.write(
       formatError(
         "no_usage_found",
-        `No assistant turn with usage data found in ${discovery.transcript}`,
+        discovery.harness === "codex"
+          ? `No Codex token count event with usage data found in ${discovery.transcript}`
+          : `No assistant turn with usage data found in ${discovery.transcript}`,
       ) + "\n",
     );
     return 1;
@@ -110,14 +123,20 @@ async function run(
   const { window, source } = resolveWindow({
     override: args.window,
     model: usage.model,
+    harness: discovery.harness,
   });
+
+  const sessionId =
+    discovery.harness === "codex"
+      ? (usage as CodexUsageInfo).sessionId ?? discovery.sessionId
+      : discovery.sessionId;
 
   const report = buildReport({
     tokensUsed: usage.tokensUsed,
     window,
     windowSource: source,
     model: usage.model,
-    sessionId: discovery.sessionId,
+    sessionId,
     transcript: discovery.transcript,
   });
 

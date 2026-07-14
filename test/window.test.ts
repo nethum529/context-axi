@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveWindow, DEFAULT_WINDOW, ONE_M_WINDOW } from "../src/window.js";
+import {
+  CODEX_DEFAULT_WINDOW,
+  DEFAULT_WINDOW,
+  ONE_M_WINDOW,
+  resolveWindow,
+} from "../src/window.js";
 
 describe("resolveWindow", () => {
   it("defaults to 200000 when no model or override", () => {
@@ -54,6 +59,20 @@ describe("resolveWindow", () => {
   it("override always wins over model hint", () => {
     expect(resolveWindow({ override: 50000, model: "claude-sonnet-4-5[1m]" })).toEqual({
       window: 50000,
+      source: "override",
+    });
+  });
+
+  it("defaults Codex sessions to 272000 tokens", () => {
+    expect(resolveWindow({ harness: "codex", model: "gpt-5.6-terra" })).toEqual({
+      window: CODEX_DEFAULT_WINDOW,
+      source: "default",
+    });
+  });
+
+  it("lets an explicit Codex window override win", () => {
+    expect(resolveWindow({ harness: "codex", override: 128000 })).toEqual({
+      window: 128000,
       source: "override",
     });
   });

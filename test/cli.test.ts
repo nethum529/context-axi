@@ -1,6 +1,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli.js";
 
@@ -92,6 +93,50 @@ describe("cli error path", () => {
     expect(parsed.tokensUsed).toBe(100000);
     expect(parsed.percentUsed).toBe(10); // 100k of the 1M opus-4-8 window
     expect(parsed.windowSource).toBe("model");
+  });
+
+  it("detects a Codex rollout passed through --transcript", async () => {
+    const rollout = fileURLToPath(
+      new URL(
+        "./fixtures/rollout-2026-07-13T00-00-00-00000000-0000-0000-0000-000000000000.jsonl",
+        import.meta.url,
+      ),
+    );
+    const stdout = new MemoryStdout();
+    const stderr = new MemoryStdout();
+    const code = await main(["--transcript", rollout, "--json"], stdout, stderr);
+
+    expect(code).toBe(0);
+    expect(stderr.toString()).toBe("");
+    expect(JSON.parse(stdout.toString())).toEqual({
+      percentUsed: 18,
+      tokensUsed: 48000,
+      window: 272000,
+      windowSource: "default",
+      model: "gpt-5.6-terra",
+      sessionId: "codex-fixture-session",
+      transcript: rollout,
+    });
+  });
+
+  it("accepts --harness codex for an explicit rollout", async () => {
+    const rollout = fileURLToPath(
+      new URL(
+        "./fixtures/rollout-2026-07-13T00-00-00-00000000-0000-0000-0000-000000000000.jsonl",
+        import.meta.url,
+      ),
+    );
+    const stdout = new MemoryStdout();
+    const stderr = new MemoryStdout();
+    const code = await main(
+      ["--harness", "codex", "--transcript", rollout, "--json"],
+      stdout,
+      stderr,
+    );
+
+    expect(code).toBe(0);
+    expect(stderr.toString()).toBe("");
+    expect(JSON.parse(stdout.toString()).window).toBe(272000);
   });
 
   it("exits 1 with a structured error when --transcript points at a directory (EISDIR)", async () => {

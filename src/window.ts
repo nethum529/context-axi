@@ -1,6 +1,7 @@
 export type WindowSource = "override" | "model" | "default";
 
 export const DEFAULT_WINDOW = 200_000;
+export const CODEX_DEFAULT_WINDOW = 272_000;
 export const ONE_M_WINDOW = 1_000_000;
 
 /** Known context windows per model family, from Anthropic's model catalog.
@@ -22,9 +23,14 @@ const MODEL_WINDOWS: { pattern: RegExp; window: number }[] = [
 export function resolveWindow(options: {
   override?: number | undefined;
   model?: string | undefined;
+  harness?: "claude" | "codex" | undefined;
 }): { window: number; source: WindowSource } {
   if (options.override !== undefined) {
     return { window: options.override, source: "override" };
+  }
+
+  if (options.harness === "codex") {
+    return { window: CODEX_DEFAULT_WINDOW, source: "default" };
   }
 
   if (options.model) {

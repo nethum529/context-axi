@@ -1,7 +1,10 @@
+import type { HarnessOption } from "./discover.js";
+
 export type ParsedArgs = {
   cwd?: string;
   session?: string;
   transcript?: string;
+  harness?: HarnessOption;
   window?: number;
   json: boolean;
   help: boolean;
@@ -46,6 +49,19 @@ const FLAG_SPECS: FlagSpec[] = [
     takesValue: true,
     apply: (result, value) => {
       result.transcript = value;
+    },
+  },
+  {
+    name: "--harness",
+    takesValue: true,
+    apply: (result, value) => {
+      if (value !== "auto" && value !== "claude" && value !== "codex") {
+        throw new CliError(
+          "invalid_harness",
+          `--harness must be one of: auto, claude, codex; got: ${value}`,
+        );
+      }
+      result.harness = value;
     },
   },
   {

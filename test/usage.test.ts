@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { findLastUsage } from "../src/usage.js";
+import { findLastCodexUsage, findLastUsage } from "../src/usage.js";
 
 function line(obj: unknown): string {
   return JSON.stringify(obj);
@@ -85,5 +87,22 @@ describe("findLastUsage", () => {
 
     const result = findLastUsage(content);
     expect(result).toEqual({ tokensUsed: 6, model: "claude-opus-4-8" });
+  });
+});
+
+describe("findLastCodexUsage", () => {
+  it("uses the last token_count event from a rollout fixture", () => {
+    const fixture = fileURLToPath(
+      new URL(
+        "./fixtures/rollout-2026-07-13T00-00-00-00000000-0000-0000-0000-000000000000.jsonl",
+        import.meta.url,
+      ),
+    );
+
+    expect(findLastCodexUsage(readFileSync(fixture, "utf8"))).toEqual({
+      tokensUsed: 48000,
+      model: "gpt-5.6-terra",
+      sessionId: "codex-fixture-session",
+    });
   });
 });
