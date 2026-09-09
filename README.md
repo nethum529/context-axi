@@ -33,9 +33,12 @@ Use `npx -y github:nethum529/context-axi` to check how full your context is.
 ```
 context-axi
     |
-    | 1. find the newest transcript for this directory
-    |      claude: ~/.claude/projects/<encoded-cwd>/*.jsonl
-    |      codex:  ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
+    | 1. work out which session is asking
+    |      --transcript / --session
+    |      CLAUDE_CODE_SESSION_ID or CODEX_SESSION_ID
+    |      else the newest transcript for this directory
+    |        claude: ~/.claude/projects/<encoded-cwd>/*.jsonl
+    |        codex:  ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
     |
     | 2. read the last token count in it
     |
@@ -46,6 +49,29 @@ context-axi
 
 That's the whole trick.
 The agent already wrote its token usage to disk; this just digs it up and does the division.
+
+## Which session am I
+
+One directory can hold several sessions. The newest transcript is not always the
+one that is asking, so a quiet session can read a busy session's number.
+
+Selection runs in this order:
+
+1. `--transcript <path>`.
+2. `--session <id>`.
+3. `CLAUDE_CODE_SESSION_ID` or `CODEX_SESSION_ID` from the environment. Both
+   harnesses export these, so a tool called from inside a session gets the right
+   answer with no flags. The value is used only if that transcript exists.
+4. The newest transcript for the directory.
+
+Step 4 only runs when one session is active. If two or more are active,
+context-axi stops with `ambiguous_session` and lists them instead of guessing.
+
+| Variable | Effect |
+| --- | --- |
+| `CLAUDE_CODE_SESSION_ID` / `CODEX_SESSION_ID` | Name the calling session |
+| `CONTEXT_AXI_NO_ENV_SESSION=1` | Ignore those two variables |
+| `CONTEXT_AXI_LIVE_WINDOW_SECONDS=<n>` | How recent counts as active (default 900). `0` turns the check off and restores newest-wins |
 
 ## Usage
 
@@ -73,7 +99,8 @@ If your percentage looks over 100%, the guess was wrong; pass `--window`.
 ## Exit codes
 
 - `0` success.
-- `1` no transcript or no usage data found (JSON error on stderr).
+- `1` no transcript, no usage data, or more than one active session
+  (JSON error on stderr).
 - `2` bad invocation, like an unknown flag.
 
 ## Development

@@ -25,7 +25,7 @@ export function codexSessionsRoot(): string {
 }
 
 export type DiscoveryError = {
-  code: "no_projects_dir" | "no_sessions_dir" | "no_transcripts";
+  code: "no_projects_dir" | "no_sessions_dir" | "no_transcripts" | "ambiguous_session";
   message: string;
 };
 
@@ -51,6 +51,61 @@ type CodexDiscoveryMetadata = {
 function stem(path: string): string {
   const base = basename(path);
   return base.endsWith(".jsonl") ? base.slice(0, -".jsonl".length) : base;
+}
+
+/** Default span that counts a transcript as "live" for ambiguity detection. */
+const DEFAULT_LIVE_WINDOW_SECONDS = 900;
+
+type EnvSession = { id: string; harness: Harness };
+
+/** Read the session id the running harness exports about itself. Without this
+ * a second session in the same cwd is indistinguishable from the caller, and
+ * mtime discovery hands back whichever transcript was written last. */
+function detectEnvSession(harness: HarnessOption): EnvSession | undefined {
+  if (process.env.CONTEXT_AXI_NO_ENV_SESSION === "1") return undefined;
+
+  if (harness !== "codex") {
+    const id = process.env.CLAUDE_CODE_SESSION_ID?.trim();
+    if (id) return { id, harness: "claude" };
+  }
+
+  if (harness !== "claude") {
+    const id = process.env.CODEX_SESSION_ID?.trim();
+    if (id) return { id, harness: "codex" };
+  }
+
+  return undefined;
+}
+
+/** Milliseconds of recency that make a transcript a live candidate.
+ * `CONTEXT_AXI_LIVE_WINDOW_SECONDS=0` turns ambiguity detection off. */
+function liveWindowMs(): number {
+  const raw = process.env.CONTEXT_AXI_LIVE_WINDOW_SECONDS;
+  if (raw === undefined) return DEFAULT_LIVE_WINDOW_SECONDS * 1_000;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return DEFAULT_LIVE_WINDOW_SECONDS * 1_000;
+  }
+  return seconds * 1_000;
+}
+
+type LiveCandidate = { candidate: TranscriptCandidate; harness: Harness };
+
+/** Refuse to guess when several sessions in this cwd are all active. Picking the
+ * newest silently reports another session's usage to the caller. */
+function ambiguityError(live: LiveCandidate[]): DiscoveryError {
+  const listed = live
+    .map((entry) => `  ${entry.harness}  ${entry.candidate.sessionId}`)
+    .join("\n");
+  return {
+    code: "ambiguous_session",
+    message:
+      `${live.length} sessions are active in this directory, so the newest transcript ` +
+      `is not necessarily yours:\n${listed}\n` +
+      "Pass --session <id> or --transcript <path> to choose one. Inside a harness, " +
+      "export CLAUDE_CODE_SESSION_ID or CODEX_SESSION_ID and it resolves itself. " +
+      "Set CONTEXT_AXI_LIVE_WINDOW_SECONDS=0 to disable this check.",
+  };
 }
 
 /** Locate the transcript to inspect, honoring --session / --transcript overrides,
@@ -87,6 +142,39 @@ export function resolveTranscript(options: {
         : findClaudeCandidate(options.cwd, options.session),
       harness === "codex" ? "codex" : "claude",
     );
+  }
+
+  // The caller told us who it is through the environment. Only trust it when the
+  // transcript really exists, so an explicit --cwd for another project still falls
+  // through to discovery instead of pointing at a file that is not there.
+  const envSession = detectEnvSession(harness);
+  if (envSession) {
+    const lookup =
+      envSession.harness === "codex"
+        ? findCodexCandidate(options.cwd, envSession.id)
+        : findClaudeCandidate(options.cwd, envSession.id);
+    if (lookup.ok && existsSync(lookup.candidate.transcript)) {
+      return success(lookup.candidate, envSession.harness);
+    }
+  }
+
+  const window = liveWindowMs();
+  if (window > 0) {
+    const cutoff = Date.now() - window;
+    const live: LiveCandidate[] = [];
+    if (harness !== "codex") {
+      for (const candidate of listLiveClaudeCandidates(options.cwd, cutoff)) {
+        live.push({ candidate, harness: "claude" });
+      }
+    }
+    if (harness !== "claude") {
+      for (const candidate of listLiveCodexCandidates(options.cwd, cutoff)) {
+        live.push({ candidate, harness: "codex" });
+      }
+    }
+    if (live.length > 1) {
+      return { ok: false, error: ambiguityError(live) };
+    }
   }
 
   if (harness === "claude") {
@@ -218,6 +306,53 @@ function findCodexCandidate(cwd: string, session?: string): CandidateLookup {
         : `No Codex rollouts found for cwd "${cwd}" under ${root}`,
     },
   };
+}
+
+/** Claude transcripts in this cwd modified at or after `cutoffMs`. */
+function listLiveClaudeCandidates(cwd: string, cutoffMs: number): TranscriptCandidate[] {
+  const dir = projectDir(cwd);
+  if (!existsSync(dir)) return [];
+
+  const live: TranscriptCandidate[] = [];
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith(".jsonl")) continue;
+    const transcript = join(dir, file);
+    let mtimeMs: number;
+    try {
+      mtimeMs = statSync(transcript).mtimeMs;
+    } catch {
+      continue;
+    }
+    if (mtimeMs >= cutoffMs) {
+      live.push({ transcript, sessionId: stem(file), mtimeMs });
+    }
+  }
+  return live;
+}
+
+/** Codex rollouts recorded against this cwd and modified at or after `cutoffMs`.
+ * Rollouts are walked newest first so the scan stops at the cutoff instead of
+ * reading metadata for every rollout on disk. */
+function listLiveCodexCandidates(cwd: string, cutoffMs: number): TranscriptCandidate[] {
+  const root = codexSessionsRoot();
+  if (!existsSync(root)) return [];
+
+  const rollouts = findCodexRollouts(root)
+    .map((transcript) => ({ transcript, mtimeMs: statSync(transcript).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const live: TranscriptCandidate[] = [];
+  for (const rollout of rollouts) {
+    if (rollout.mtimeMs < cutoffMs) break;
+    const metadata = readCodexRolloutMetadata(rollout.transcript) ?? {};
+    if (metadata.cwd !== cwd) continue;
+    live.push({
+      transcript: rollout.transcript,
+      sessionId: metadata.sessionId ?? stem(rollout.transcript),
+      mtimeMs: rollout.mtimeMs,
+    });
+  }
+  return live;
 }
 
 function findCodexRollouts(dir: string): string[] {

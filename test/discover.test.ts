@@ -109,3 +109,125 @@ describe("resolveTranscript", () => {
     });
   });
 });
+
+describe("resolveTranscript session identity", () => {
+  let home: string;
+  let originalHome: string | undefined;
+  const cwd = "/workspace/multi-session";
+
+  const claudeDir = () => join(home, ".claude", "projects", encodeCwd(cwd));
+
+  function writeClaudeSession(id: string, mtime: Date): string {
+    const path = join(claudeDir(), `${id}.jsonl`);
+    writeFileSync(path, "{}\n");
+    utimesSync(path, mtime, mtime);
+    return path;
+  }
+
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), "context-axi-identity-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = home;
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    delete process.env.CODEX_SESSION_ID;
+    delete process.env.CONTEXT_AXI_NO_ENV_SESSION;
+    delete process.env.CONTEXT_AXI_LIVE_WINDOW_SECONDS;
+    mkdirSync(claudeDir(), { recursive: true });
+  });
+
+  afterEach(() => {
+    process.env.HOME = originalHome;
+    delete process.env.CLAUDE_CODE_SESSION_ID;
+    delete process.env.CODEX_SESSION_ID;
+    delete process.env.CONTEXT_AXI_NO_ENV_SESSION;
+    delete process.env.CONTEXT_AXI_LIVE_WINDOW_SECONDS;
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("uses CLAUDE_CODE_SESSION_ID instead of the newest transcript", () => {
+    const mine = writeClaudeSession("mine", new Date(Date.now() - 60_000));
+    writeClaudeSession("busy-neighbour", new Date());
+    process.env.CLAUDE_CODE_SESSION_ID = "mine";
+
+    expect(resolveTranscript({ cwd })).toEqual({
+      ok: true,
+      transcript: mine,
+      sessionId: "mine",
+      harness: "claude",
+    });
+  });
+
+  it("ignores an env session whose transcript is not in this cwd", () => {
+    const only = writeClaudeSession("only", new Date());
+    process.env.CLAUDE_CODE_SESSION_ID = "session-from-another-project";
+
+    expect(resolveTranscript({ cwd })).toEqual({
+      ok: true,
+      transcript: only,
+      sessionId: "only",
+      harness: "claude",
+    });
+  });
+
+  it("honors CONTEXT_AXI_NO_ENV_SESSION", () => {
+    writeClaudeSession("mine", new Date(Date.now() - 60_000));
+    writeClaudeSession("newest", new Date());
+    process.env.CLAUDE_CODE_SESSION_ID = "mine";
+    process.env.CONTEXT_AXI_NO_ENV_SESSION = "1";
+
+    const result = resolveTranscript({ cwd });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.code).toBe("ambiguous_session");
+  });
+
+  it("fails loudly when two sessions in the cwd are both active", () => {
+    writeClaudeSession("session-a", new Date());
+    writeClaudeSession("session-b", new Date());
+
+    const result = resolveTranscript({ cwd });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("ambiguous_session");
+      expect(result.error.message).toContain("session-a");
+      expect(result.error.message).toContain("session-b");
+    }
+  });
+
+  it("still picks the newest when the other session is stale", () => {
+    writeClaudeSession("stale", new Date(Date.now() - 86_400_000));
+    const active = writeClaudeSession("active", new Date());
+
+    expect(resolveTranscript({ cwd })).toEqual({
+      ok: true,
+      transcript: active,
+      sessionId: "active",
+      harness: "claude",
+    });
+  });
+
+  it("CONTEXT_AXI_LIVE_WINDOW_SECONDS=0 restores newest-wins behavior", () => {
+    writeClaudeSession("older", new Date(Date.now() - 60_000));
+    const newest = writeClaudeSession("newest", new Date());
+    process.env.CONTEXT_AXI_LIVE_WINDOW_SECONDS = "0";
+
+    expect(resolveTranscript({ cwd })).toEqual({
+      ok: true,
+      transcript: newest,
+      sessionId: "newest",
+      harness: "claude",
+    });
+  });
+
+  it("an explicit --session always wins over the environment", () => {
+    writeClaudeSession("env-one", new Date());
+    const asked = writeClaudeSession("asked-for", new Date());
+    process.env.CLAUDE_CODE_SESSION_ID = "env-one";
+
+    expect(resolveTranscript({ cwd, session: "asked-for" })).toEqual({
+      ok: true,
+      transcript: asked,
+      sessionId: "asked-for",
+      harness: "claude",
+    });
+  });
+});

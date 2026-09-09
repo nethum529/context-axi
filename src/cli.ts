@@ -28,12 +28,22 @@ flags[8]:
   -v/--version          print version
 
 behavior:
+  Session selection order: --transcript, --session, then CLAUDE_CODE_SESSION_ID
+  or CODEX_SESSION_ID from the environment, then newest-transcript discovery.
+  When two or more sessions in the cwd are active, discovery stops with
+  ambiguous_session instead of reporting another session's usage.
   Auto mode compares the newest Claude and Codex transcripts for the current
   working directory. A rollout path is detected as Codex automatically.
   Codex cwd matching is exact-string; trailing slashes and symlink paths must
   match the rollout's recorded cwd.
   Claude windows default to 200000 or 1000000 for known 1M variants.
   Codex windows default to 272000. --window always wins.
+
+environment:
+  CLAUDE_CODE_SESSION_ID / CODEX_SESSION_ID  identify the calling session
+  CONTEXT_AXI_NO_ENV_SESSION=1               ignore those two variables
+  CONTEXT_AXI_LIVE_WINDOW_SECONDS=<n>        active-session span (default 900,
+                                             0 disables ambiguity detection)
 
 examples:
   context-axi
